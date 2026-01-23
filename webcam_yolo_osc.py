@@ -7,6 +7,13 @@ Assumes the model detects a single class...
 import math
 import cv2
 from ultralytics import YOLO
+from pythonosc.udp_client import SimpleUDPClient
+
+# IP address to send OSC messages to
+OSC_IP = "127.0.0.1"
+
+# UDP port to send OSC messages to on OSC_IP
+OSC_PORT = 5656
 
 # Which trained yolo model to load
 #model = YOLO("brust-test1-best.pt")
@@ -16,7 +23,59 @@ capture = cv2.VideoCapture(0) # use 0 for builtin camera, 2 for extern USB camer
 capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-def draw_res(img, res):
+def get_most_confident(res):
+    """
+    Return the box over all results with highest confidence
+    """
+    out = None
+    for r in res:
+        for box in r.boxes:
+            if out is None:
+                out = box
+            elif box.conf[0] > out.conf[0]:
+                out = box
+    return out
+
+def send_osc(client, box):
+    """
+    Sends the extracted x, y coordinates as an osc message on the given client
+    """
+    x1, y1, x2, y2 = box.xyxy[0]
+
+    cx = float(0.5 * x1 + 0.5 * x2)
+    cy = float(0.5 * y1 + 0.5 * y2)
+    client.send_message("/yolo", (cx, cy))
+
+def draw_res(img, box):
+    """
+    Draws the given box on the given image
+    """
+    x1, y1, x2, y2 = box.xyxy[0]
+    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2) # convert to int values
+
+    # put box in cam
+    cv2.rectangle(img, (x1, y1), (x2, y2), (255, 0, 255), 3)
+
+osc_client = SimpleUDPClient(OSC_IP, OSC_PORT)
+
+while True:
+    _, image = capture.read()
+    image = cv2.flip(image, 33)
+    
+    res = model(image, stream = True)
+    most_conf = get_most_confident(res)
+    if not most_conf is None:
+        send_osc(osc_client, most_conf)
+        draw_res(image, most_conf)
+
+    cv2.imshow("Webcam", image)
+    if cv2.waitKey(1) == ord("q"):
+        break
+
+capture.release()
+cv2.destroyAllWindows()
+
+def draw_res_OLD(img, res):
     """
     Draw results of object detection over the given image.
     Copied from https://dipankarmedh1.medium.com/real-time-object-detection-with-yolo-and-webcam-enhancing-your-computer-vision-skills-861b97c78993
@@ -53,17 +112,3 @@ def draw_res(img, res):
 
             # cv2.putText(img, classNames[cls], org, font, fontScale, color, thickness)
             cv2.putText(img, str(confidence), org, font, fontScale, color, thickness)
-
-while True:
-    _, image = capture.read()
-    image = cv2.flip(image, 33)
-    
-    res = model(image, stream = True)
-    draw_res(image, res)
-
-    cv2.imshow("Webcam", image)
-    if cv2.waitKey(1) == ord("q"):
-        break
-
-capture.release()
-cv2.destroyAllWindows()
