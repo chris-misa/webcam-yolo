@@ -9,19 +9,22 @@ import cv2
 from ultralytics import YOLO
 from pythonosc.udp_client import SimpleUDPClient
 
-# IP address to send OSC messages to
-OSC_IP = "127.0.0.1"
+# List of (IP address, UDP port) pairs to send OSC messages to
+ENDPOINTS = [
+    ("127.0.0.1", 8000),
+    ("127.0.0.1", 8080),
+]
 
-# UDP port to send OSC messages to on OSC_IP
-OSC_PORT = 5656
+FRAME_WIDTH = 640
+FRAME_HEIGHT = 480
 
 # Which trained yolo model to load
 #model = YOLO("brust-test1-best.pt")
 model = YOLO("yolo26n.pt")
 
 capture = cv2.VideoCapture(0) # use 0 for builtin camera, 2 for extern USB camerea
-capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+capture.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+capture.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
 
 def get_most_confident(res):
     """
@@ -36,15 +39,16 @@ def get_most_confident(res):
                 out = box
     return out
 
-def send_osc(client, box):
+def send_osc(clients, box):
     """
     Sends the extracted x, y coordinates as an osc message on the given client
     """
     x1, y1, x2, y2 = box.xyxy[0]
 
-    cx = float(0.5 * x1 + 0.5 * x2)
-    cy = float(0.5 * y1 + 0.5 * y2)
-    client.send_message("/yolo", (cx, cy))
+    cx = float(0.5 * x1 + 0.5 * x2) / float(FRAME_WIDTH)
+    cy = float(0.5 * y1 + 0.5 * y2) / float(FRAME_HEIGHT)
+    for client in clients:
+        client.send_message("/yolo", (cx, cy))
 
 def draw_res(img, box):
     """
@@ -56,16 +60,20 @@ def draw_res(img, box):
     # put box in cam
     cv2.rectangle(img, (x1, y1), (x2, y2), (255, 0, 255), 3)
 
-osc_client = SimpleUDPClient(OSC_IP, OSC_PORT)
+osc_clients = [SimpleUDPClient(addr, port) for addr, port in ENDPOINTS]
 
 while True:
-    _, image = capture.read()
+    rv, image = capture.read()
+
+    if not rv or image is None:
+        continue
+    
     image = cv2.flip(image, 33)
     
     res = model(image, stream = True)
     most_conf = get_most_confident(res)
     if not most_conf is None:
-        send_osc(osc_client, most_conf)
+        send_osc(osc_clients, most_conf)
         draw_res(image, most_conf)
 
     cv2.imshow("Webcam", image)
