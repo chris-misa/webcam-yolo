@@ -12,7 +12,6 @@ from pythonosc.udp_client import SimpleUDPClient
 # List of (IP address, UDP port) pairs to send OSC messages to
 ENDPOINTS = [
     ("127.0.0.1", 8000),
-    ("127.0.0.1", 8080),
 ]
 
 FRAME_WIDTH = 640
